@@ -4,6 +4,7 @@ package sego
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -33,6 +34,14 @@ func (seg *Segmenter) Dictionary() *Dictionary {
 	return seg.dict
 }
 
+type LineKeyMode int
+
+const (
+	ModeAllNeed LineKeyMode = iota + 1 //要求格式，字典每行按照: 词元 词频 [词性]
+	ModeMix                            //对于格式缺少词频的，可用默认代替
+	ModeOneKey                         //所有字典都采用默认的词频和词性
+)
+
 // 从文件中载入词典
 //
 // 可以载入多个词典文件，文件名用","分隔，排在前面的词典优先载入分词，比如
@@ -41,22 +50,14 @@ func (seg *Segmenter) Dictionary() *Dictionary {
 //
 // 词典的格式为（每个分词一行）：
 //	分词文本 频率 词性
-func (seg *Segmenter) LoadDictionary(files string) {
+func (seg *Segmenter) LoadDictionaryReaders(keyMode LineKeyMode, rs ...io.Reader) {
 	seg.dict = NewDictionary()
-	for _, file := range strings.Split(files, ",") {
-		log.Printf("载入sego词典 %s", file)
-		dictFile, err := os.Open(file)
-		defer dictFile.Close()
-		if err != nil {
-			log.Fatalf("无法载入字典文件 \"%s\" \n", file)
-		}
 
-		reader := bufio.NewReader(dictFile)
+	for _, reader := range rs {
 		var text string
 		var freqText string
 		var frequency int
 		var pos string
-
 		// 逐行读入分词
 		for {
 			size, _ := fmt.Fscanln(reader, &text, &freqText, &pos)
@@ -64,11 +65,20 @@ func (seg *Segmenter) LoadDictionary(files string) {
 			if size == 0 {
 				// 文件结束
 				break
-			} else if size < 2 {
-				// 无效行
-				continue
-			} else if size == 2 {
-				// 没有词性标注时设为空字符串
+			}
+			switch keyMode {
+			case ModeAllNeed:
+				if size < 2 {
+					continue
+				}
+			case ModeMix:
+				if size < 2 {
+					freqText = strconv.Itoa(minTokenFrequency + 1)
+				} else if size == 2 {
+					pos = ""
+				}
+			default:
+				freqText = strconv.Itoa(minTokenFrequency + 1)
 				pos = ""
 			}
 
@@ -125,6 +135,20 @@ func (seg *Segmenter) LoadDictionary(files string) {
 	}
 
 	log.Println("sego词典载入完毕")
+}
+
+func (seg *Segmenter) LoadDictionary(files string) {
+	var readers []io.Reader
+	for _, file := range strings.Split(files, ",") {
+		log.Printf("载入sego词典 %s", file)
+		dictFile, err := os.Open(file)
+		defer dictFile.Close()
+		if err != nil {
+			log.Fatalf("无法载入字典文件 \"%s\" \n", file)
+		}
+		readers = append(readers, bufio.NewReader(dictFile))
+	}
+	seg.LoadDictionaryReaders(ModeAllNeed, readers...)
 }
 
 // 对文本分词

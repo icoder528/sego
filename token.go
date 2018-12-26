@@ -26,6 +26,10 @@ type Token struct {
 	segments []*Segment
 }
 
+func NewToken(text, pos string, freq int) *Token {
+	return &Token{text: splitTextToWords([]byte(text)), frequency: freq, pos: pos}
+}
+
 // 返回分词文本
 func (token *Token) Text() string {
 	return textSliceToString(token.text)

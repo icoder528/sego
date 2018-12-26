@@ -1,6 +1,10 @@
 package sego
 
-import "github.com/adamzy/cedar-go"
+import (
+	"math"
+
+	"github.com/adamzy/cedar-go"
+)
 
 // Dictionary结构体实现了一个字串前缀树，一个分词可能出现在叶子节点也有可能出现在非叶节点
 type Dictionary struct {
@@ -30,7 +34,7 @@ func (dict *Dictionary) TotalFrequency() int64 {
 }
 
 // 向词典中加入一个分词
-func (dict *Dictionary) addToken(token Token) {
+func (dict *Dictionary) AddToken(token Token) {
 	bytes := textSliceToBytes(token.text)
 	_, err := dict.trie.Get(bytes)
 	if err == nil {
@@ -62,4 +66,14 @@ func (dict *Dictionary) lookupTokens(words []Text, tokens []*Token) (numOfTokens
 		}
 	}
 	return
+}
+
+func (dict *Dictionary) Init() {
+	// 计算每个分词的路径值，路径值含义见Token结构体的注释
+	logTotalFrequency := float32(math.Log2(float64(dict.totalFrequency)))
+	for i := range dict.tokens {
+		token := &dict.tokens[i]
+		token.distance = logTotalFrequency - float32(math.Log2(float64(token.frequency)))
+	}
+
 }

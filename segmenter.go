@@ -4,7 +4,6 @@ package sego
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"os"
@@ -29,18 +28,17 @@ type jumper struct {
 	token       *Token
 }
 
+func NewSegmenter(dic *Dictionary) *Segmenter {
+	dic.Init()
+	s := &Segmenter{dic}
+	s.init()
+	return s
+}
+
 // 返回分词器使用的词典
 func (seg *Segmenter) Dictionary() *Dictionary {
 	return seg.dict
 }
-
-type LineKeyMode int
-
-const (
-	ModeAllNeed LineKeyMode = iota + 1 //要求格式，字典每行按照: 词元 词频 [词性]
-	ModeMix                            //对于格式缺少词频的，可用默认代替
-	ModeOneKey                         //所有字典都采用默认的词频和词性
-)
 
 // 从文件中载入词典
 //
@@ -50,14 +48,22 @@ const (
 //
 // 词典的格式为（每个分词一行）：
 //	分词文本 频率 词性
-func (seg *Segmenter) LoadDictionaryReaders(keyMode LineKeyMode, rs ...io.Reader) {
+func (seg *Segmenter) LoadDictionary(files string) {
 	seg.dict = NewDictionary()
+	for _, file := range strings.Split(files, ",") {
+		log.Printf("载入sego词典 %s", file)
+		dictFile, err := os.Open(file)
+		defer dictFile.Close()
+		if err != nil {
+			log.Fatalf("无法载入字典文件 \"%s\" \n", file)
+		}
 
-	for _, reader := range rs {
+		reader := bufio.NewReader(dictFile)
 		var text string
 		var freqText string
 		var frequency int
 		var pos string
+
 		// 逐行读入分词
 		for {
 			size, _ := fmt.Fscanln(reader, &text, &freqText, &pos)
@@ -65,20 +71,11 @@ func (seg *Segmenter) LoadDictionaryReaders(keyMode LineKeyMode, rs ...io.Reader
 			if size == 0 {
 				// 文件结束
 				break
-			}
-			switch keyMode {
-			case ModeAllNeed:
-				if size < 2 {
-					continue
-				}
-			case ModeMix:
-				if size < 2 {
-					freqText = strconv.Itoa(minTokenFrequency + 1)
-				} else if size == 2 {
-					pos = ""
-				}
-			default:
-				freqText = strconv.Itoa(minTokenFrequency + 1)
+			} else if size < 2 {
+				// 无效行
+				continue
+			} else if size == 2 {
+				// 没有词性标注时设为空字符串
 				pos = ""
 			}
 
@@ -97,7 +94,7 @@ func (seg *Segmenter) LoadDictionaryReaders(keyMode LineKeyMode, rs ...io.Reader
 			// 将分词添加到字典中
 			words := splitTextToWords([]byte(text))
 			token := Token{text: words, frequency: frequency, pos: pos}
-			seg.dict.addToken(token)
+			seg.dict.AddToken(token)
 		}
 	}
 
@@ -108,6 +105,12 @@ func (seg *Segmenter) LoadDictionaryReaders(keyMode LineKeyMode, rs ...io.Reader
 		token.distance = logTotalFrequency - float32(math.Log2(float64(token.frequency)))
 	}
 
+	seg.init()
+
+	log.Println("sego词典载入完毕")
+}
+
+func (seg *Segmenter) init() {
 	// 对每个分词进行细致划分，用于搜索引擎模式，该模式用法见Token结构体的注释。
 	for i := range seg.dict.tokens {
 		token := &seg.dict.tokens[i]
@@ -133,22 +136,6 @@ func (seg *Segmenter) LoadDictionaryReaders(keyMode LineKeyMode, rs ...io.Reader
 			}
 		}
 	}
-
-	log.Println("sego词典载入完毕")
-}
-
-func (seg *Segmenter) LoadDictionary(files string) {
-	var readers []io.Reader
-	for _, file := range strings.Split(files, ",") {
-		log.Printf("载入sego词典 %s", file)
-		dictFile, err := os.Open(file)
-		defer dictFile.Close()
-		if err != nil {
-			log.Fatalf("无法载入字典文件 \"%s\" \n", file)
-		}
-		readers = append(readers, bufio.NewReader(dictFile))
-	}
-	seg.LoadDictionaryReaders(ModeAllNeed, readers...)
 }
 
 // 对文本分词
